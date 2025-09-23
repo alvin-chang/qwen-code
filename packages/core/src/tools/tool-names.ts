@@ -20,4 +20,6 @@ export const ToolNames = {
   TODO_WRITE: 'todo_write',
   MEMORY: 'save_memory',
   TASK: 'task',
+  STORE_CONVERSATION_TURN: 'store_conversation_turn',
+  SEARCH_CONVERSATION_HISTORY: 'search_conversation_history',
 } as const;

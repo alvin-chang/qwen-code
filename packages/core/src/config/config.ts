@@ -1011,6 +1011,12 @@ export class Config {
     if (this.getTavilyApiKey()) {
       registerCoreTool(WebSearchTool, this);
     }
+    
+    // Register memori extension tools if MCP servers are configured
+    const mcpServers = this.getMcpServers();
+    if (mcpServers && Object.keys(mcpServers).length > 0) {
+      // Memori tools will be registered dynamically when MCP connection is established
+    }
 
     await registry.discoverAllTools();
     return registry;
