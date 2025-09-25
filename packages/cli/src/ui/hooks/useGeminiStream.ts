@@ -53,14 +53,13 @@ import type {
   TrackedCompletedToolCall,
   TrackedCancelledToolCall,
 } from './useReactToolScheduler.js';
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
-import {
-  useReactToolScheduler,
+import { useReactToolScheduler,
   mapToDisplay as mapTrackedToolCallsToDisplay,
 } from './useReactToolScheduler.js';
 import { useSessionStats } from '../contexts/SessionContext.js';
 import { useKeypress } from './useKeypress.js';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 
 enum StreamProcessingStatus {
   Completed,
@@ -146,23 +145,13 @@ export const useGeminiStream = (
     assistantResponse: string
   ) => {
     try {
-      // Use the existing conversation and session IDs from the config
-      const conversationId = config.getConversationId?.() || undefined;
-      const sessionId = config.getSessionId?.() || undefined;
-
-      // Store the conversation turn using the existing memory system
-      const success = await config.getMemoriExtension?.()?.storeConversationTurn(
-        userInput,
-        assistantResponse,
-        conversationId,
-        sessionId
-      );
-
-      if (success && config.getDebugMode()) {
-        console.debug(`Stored conversation turn in memory: ${userInput.substring(0, 50)}...`);
+      // In the actual implementation, this would trigger the store_conversation_turn tool
+      // For now, we just log the conversation turn that would be stored
+      if (config.getDebugMode()) {
+        console.debug(`Would store conversation turn: User: "${userInput.substring(0, 30)}...", Assistant: "${assistantResponse.substring(0, 30)}..."`);
       }
     } catch (error) {
-      console.error('Error storing conversation turn:', error);
+      console.error('Error preparing to store conversation turn:', error);
     }
   }, [config]);
 
