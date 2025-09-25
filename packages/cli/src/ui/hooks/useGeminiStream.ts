@@ -140,6 +140,32 @@ export const useGeminiStream = (
       onEditorClose,
     );
 
+  // Callback to store conversation turns automatically
+  const storeConversationTurn = useCallback(async (
+    userInput: string,
+    assistantResponse: string
+  ) => {
+    try {
+      // Use the existing conversation and session IDs from the config
+      const conversationId = config.getConversationId?.() || undefined;
+      const sessionId = config.getSessionId?.() || undefined;
+
+      // Store the conversation turn using the existing memory system
+      const success = await config.getMemoriExtension?.()?.storeConversationTurn(
+        userInput,
+        assistantResponse,
+        conversationId,
+        sessionId
+      );
+
+      if (success && config.getDebugMode()) {
+        console.debug(`Stored conversation turn in memory: ${userInput.substring(0, 50)}...`);
+      }
+    } catch (error) {
+      console.error('Error storing conversation turn:', error);
+    }
+  }, [config]);
+
   const pendingToolCallGroupDisplay = useMemo(
     () =>
       toolCalls.length ? mapTrackedToolCallsToDisplay(toolCalls) : undefined,
@@ -423,7 +449,7 @@ export const useGeminiStream = (
         // treated as static in order to prevent re-rendering an entire message history
         // multiple times per-second (as streaming occurs). Prior to this change you'd
         // see heavy flickering of the terminal. This ensures that larger messages get
-        // broken up so that there are more "statically" rendered.
+        // broken up so that there are more \"statically\" rendered.
         const beforeText = newGeminiMessageBuffer.substring(0, splitPoint);
         const afterText = newGeminiMessageBuffer.substring(splitPoint);
         addItem(
@@ -702,6 +728,7 @@ export const useGeminiStream = (
       isSubmittingQueryRef.current = true;
 
       const userMessageTimestamp = Date.now();
+      let currentUserInput: string | null = null;
 
       // Reset quota error flag when starting a new query (not a continuation)
       if (!options?.isContinuation) {
@@ -741,6 +768,11 @@ export const useGeminiStream = (
         return;
       }
 
+      // Store the current user input for later use when storing conversation turn
+      if (typeof query === 'string' && !options?.isContinuation) {
+        currentUserInput = query.trim();
+      }
+
       const finalQueryToSend = queryToSend;
 
       if (!options?.isContinuation) {
@@ -773,6 +805,13 @@ export const useGeminiStream = (
         }
 
         if (pendingHistoryItemRef.current) {
+          // Store the conversation turn if this is not a continuation and we have user input
+          if (!options?.isContinuation && currentUserInput && 
+              (pendingHistoryItemRef.current.type === 'gemini' || 
+               pendingHistoryItemRef.current.type === 'gemini_content')) {
+            await storeConversationTurn(currentUserInput, pendingHistoryItemRef.current.text);
+          }
+          
           addItem(pendingHistoryItemRef.current, userMessageTimestamp);
           setPendingHistoryItem(null);
         }
@@ -794,19 +833,22 @@ export const useGeminiStream = (
         if (error instanceof UnauthorizedError) {
           onAuthError();
         } else if (!isNodeError(error) || error.name !== 'AbortError') {
-          addItem(
-            {
-              type: MessageType.ERROR,
-              text: parseAndFormatApiError(
-                getErrorMessage(error) || 'Unknown error',
-                config.getContentGeneratorConfig()?.authType,
-                undefined,
-                config.getModel(),
-                DEFAULT_GEMINI_FLASH_MODEL,
-              ),
-            },
-            userMessageTimestamp,
-          );
+          const errorItem = {
+            type: MessageType.ERROR,
+            text: parseAndFormatApiError(
+              getErrorMessage(error) || 'Unknown error',
+              config.getContentGeneratorConfig()?.authType,
+              undefined,
+              config.getModel(),
+              DEFAULT_GEMINI_FLASH_MODEL,
+            ),
+          };
+          addItem(errorItem, userMessageTimestamp);
+          
+          // Store the conversation turn even if there was an error
+          if (!options?.isContinuation && currentUserInput) {
+            await storeConversationTurn(currentUserInput, errorItem.text);
+          }
         }
       } finally {
         setIsResponding(false);
@@ -830,6 +872,7 @@ export const useGeminiStream = (
       handleLoopDetectedEvent,
       handleVisionSwitch,
       restoreOriginalModel,
+      storeConversationTurn,
     ],
   );
 
