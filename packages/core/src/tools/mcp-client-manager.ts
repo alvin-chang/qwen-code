@@ -5,7 +5,7 @@
  */
 
 import type { MCPServerConfig } from '../config/config.js';
-import type { ToolRegistry } from './tool-registry.js';
+import { ToolRegistry } from './tool-registry.js';
 import type { PromptRegistry } from '../prompts/prompt-registry.js';
 import {
   McpClient,
@@ -15,7 +15,6 @@ import {
 import { getErrorMessage } from '../utils/errors.js';
 import type { WorkspaceContext } from '../utils/workspaceContext.js';
 import { MemoriToolManager } from '../extensions/memori/memori-tool-manager.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 /**
  * Manages the lifecycle of multiple MCP clients, including local child processes.
@@ -48,10 +47,74 @@ export class McpClientManager {
     this.debugMode = debugMode;
     this.workspaceContext = workspaceContext;
     
-    // Initialize memori tool manager if we have MCP servers configured
-    if (mcpServers && Object.keys(mcpServers).length > 0) {
-      this.memoriToolManager = new MemoriToolManager(toolRegistry);
+    // Initialize memori tool manager only if no MCP servers provide conversation tools
+    // This prevents duplicate tool registration which can cause hanging at startup
+    const hasServerWithConversationTools = this.hasMcpServerWithConversationTools(mcpServers);
+    
+    if (!hasServerWithConversationTools) {
+      // Initialize memori tool manager to provide file-based conversation tools
+      // This ensures conversation memory works even without MCP servers
+      const directories = workspaceContext.getDirectories();
+      const workspacePath = directories.length > 0 ? directories[0] : process.cwd();
+      this.memoriToolManager = new MemoriToolManager(toolRegistry, 'qwen-code', workspacePath);
+    } else {
+      console.debug('Skipping local memori tool manager initialization - MCP server with conversation tools detected');
+      this.memoriToolManager = null;
     }
+  }
+  
+  /**
+   * Checks if any of the configured MCP servers provide conversation memory tools
+   * to prevent duplicate registration that can cause hanging at startup
+   */
+  private hasMcpServerWithConversationTools(mcpServers: Record<string, MCPServerConfig>): boolean {
+    const serverNames = Object.keys(mcpServers);
+    
+    // Check for servers with names that suggest they provide conversation tools
+    for (const serverName of serverNames) {
+      const lowerName = serverName.toLowerCase();
+      if (lowerName.includes('memori') || 
+          lowerName.includes('conversation') || 
+          lowerName.includes('memory') ||
+          lowerName.includes('chat') ||
+          lowerName.includes('history')) {
+        return true;
+      }
+    }
+    
+    // Additionally, check if any server has configuration that includes conversation tools
+    for (const [name, config] of Object.entries(mcpServers)) {
+      if (config.includeTools) {
+        const lowerIncludeTools = config.includeTools.map(t => t.toLowerCase());
+        if (lowerIncludeTools.some(tool => 
+          tool.includes('conversation') || 
+          tool.includes('memory') || 
+          tool.includes('history') ||
+          tool === 'store_conversation_turn' ||
+          tool === 'search_conversation_history'
+        )) {
+          console.debug(`MCP server '${name}' configured with conversation tools, skipping local tools`);
+          return true;
+        }
+      }
+      
+      if (config.excludeTools) {
+        // If conversation tools are explicitly excluded, the server might not provide them
+        // But generally we don't want to rely on this as the primary check
+        const lowerExcludeTools = config.excludeTools.map(t => t.toLowerCase());
+        if (lowerExcludeTools.some(tool => 
+          tool.includes('conversation') || 
+          tool.includes('memory') || 
+          tool.includes('history') ||
+          tool === 'store_conversation_turn' ||
+          tool === 'search_conversation_history'
+        )) {
+          continue; // This server explicitly excludes conversation tools
+        }
+      }
+    }
+    
+    return false;
   }
 
   /**
@@ -81,12 +144,6 @@ export class McpClientManager {
         try {
           await client.connect();
           await client.discover();
-          
-          // Initialize memori extension with the first connected client
-          if (this.memoriToolManager && name === 'local-memori') {
-            this.memoriToolManager.initialize(client as unknown as Client);
-            this.memoriToolManager.registerTools();
-          }
         } catch (error) {
           // Log the error but don't let a single failed server stop the others
           console.error(
@@ -99,6 +156,16 @@ export class McpClientManager {
     );
 
     await Promise.all(discoveryPromises);
+    
+    // Register memori tools only if no MCP server is providing them
+    // This prevents duplicate tool registration which can cause hanging at startup
+    if (this.memoriToolManager) {
+      console.debug('Registering local memori tools since no MCP server was detected for conversation memory');
+      this.memoriToolManager.registerTools();
+    } else {
+      console.debug('Skipping local memori tool registration - MCP server detected');
+    }
+    
     this.discoveryState = MCPDiscoveryState.COMPLETED;
   }
 
