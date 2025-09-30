@@ -4,134 +4,170 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MemoriExtension } from './memori-extension.js';
-
-// Mock MCP Client
-const mockClient = {
-  callTool: vi.fn(),
-};
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import os from 'node:os';
 
 describe('MemoriExtension', () => {
   let memoriExtension: MemoriExtension;
+  const testWorkspacePath = fs.mkdtempSync(path.join(os.tmpdir(), 'qwen-test-'));
 
   beforeEach(() => {
-    memoriExtension = new MemoriExtension('test-project');
-    memoriExtension.initialize(mockClient as any);
-    mockClient.callTool.mockClear();
+    memoriExtension = new MemoriExtension('test-project', testWorkspacePath);
+  });
+
+  afterEach(() => {
+    // Clean up test directory
+    try {
+      fs.rmSync(testWorkspacePath, { recursive: true, force: true });
+    } catch (error) {
+      // Ignore cleanup errors
+    }
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe('constructor', () => {
+    it('should initialize with a session ID and conversation ID', () => {
+      const sessionId = memoriExtension.getSessionId();
+      expect(sessionId).toBeTruthy();
+      expect(typeof sessionId).toBe('string');
+      
+      const conversationId = memoriExtension.getConversationId();
+      expect(conversationId).toBeTruthy();
+      expect(typeof conversationId).toBe('string');
+    });
   });
 
   describe('storeConversationTurn', () => {
     it('should store a conversation turn successfully', async () => {
-      mockClient.callTool.mockResolvedValue({
-        content: [{ type: 'text', text: '✅ Stored memory for [conversation] in [test-project]: CONVERSATION_TURN' }]
-      });
-
       const result = await memoriExtension.storeConversationTurn(
         'Hello, how are you?',
         'I am doing well, thank you for asking!'
       );
 
       expect(result).toBe(true);
-      expect(mockClient.callTool).toHaveBeenCalledWith({
-        name: 'store_memory',
-        arguments: {
-          content: expect.stringContaining('CONVERSATION_TURN'),
-          project_id: 'test-project',
-          agent_role: 'conversation'
-        }
-      });
+      
+      // Verify that the conversation was stored in the local file system
+      const conversationId = memoriExtension.getConversationId();
+      const qwenDir = path.join(testWorkspacePath, '.qwen', 'conversations');
+      const conversationFile = path.join(qwenDir, `${conversationId}.json`);
+      
+      expect(fs.existsSync(conversationFile)).toBe(true);
+      
+      const fileContent = JSON.parse(fs.readFileSync(conversationFile, 'utf8'));
+      expect(fileContent).toHaveLength(1);
+      expect(fileContent[0].userInput).toBe('Hello, how are you?');
+      expect(fileContent[0].assistantResponse).toBe('I am doing well, thank you for asking!');
+      expect(fileContent[0].conversationId).toBe(conversationId);
     });
 
-    it('should return false when storage fails', async () => {
-      mockClient.callTool.mockResolvedValue({
-        content: [{ type: 'text', text: '❌ Failed to store memory' }]
-      });
-
-      const result = await memoriExtension.storeConversationTurn(
-        'Hello, how are you?',
-        'I am doing well, thank you for asking!'
-      );
-
-      expect(result).toBe(false);
-    });
-
-    it('should use provided session ID when specified', async () => {
-      mockClient.callTool.mockResolvedValue({
-        content: [{ type: 'text', text: '✅ Stored memory for [conversation] in [test-project]: CONVERSATION_TURN' }]
-      });
-
+    it('should use provided conversation ID and session ID when specified', async () => {
+      const customConversationId = 'custom-conversation-123';
+      const customSessionId = 'custom-session-456';
+      
       const result = await memoriExtension.storeConversationTurn(
         'Hello, how are you?',
         'I am doing well, thank you for asking!',
-        'custom-session-123'
+        customConversationId,
+        customSessionId
       );
 
       expect(result).toBe(true);
-      expect(mockClient.callTool).toHaveBeenCalledWith({
-        name: 'store_memory',
-        arguments: {
-          content: expect.stringContaining('[custom-session-123]'),
-          project_id: 'test-project',
-          agent_role: 'conversation'
-        }
-      });
+      
+      // Verify that the conversation was stored with the custom IDs
+      const qwenDir = path.join(testWorkspacePath, '.qwen', 'conversations');
+      const conversationFile = path.join(qwenDir, `${customConversationId}.json`);
+      
+      expect(fs.existsSync(conversationFile)).toBe(true);
+      
+      const fileContent = JSON.parse(fs.readFileSync(conversationFile, 'utf8'));
+      expect(fileContent).toHaveLength(1);
+      expect(fileContent[0].userInput).toBe('Hello, how are you?');
+      expect(fileContent[0].assistantResponse).toBe('I am doing well, thank you for asking!');
+      expect(fileContent[0].conversationId).toBe(customConversationId);
+      expect(fileContent[0].sessionId).toBe(customSessionId);
     });
   });
 
   describe('searchConversationHistory', () => {
     it('should search conversation history and return results', async () => {
-      mockClient.callTool.mockResolvedValue({
-        content: [{
-          type: 'text',
-          text: `Key: [test-project][conversation] CONVERSATION_TURN [session-123]: USER: Hello | ASSISTANT: Hi there!
----
-Key: [test-project][conversation] CONVERSATION_TURN [session-123]: USER: How are you? | ASSISTANT: I'm good!`
-        }]
-      });
+      // First, store some conversation turns
+      const conversationId = memoriExtension.getConversationId();
+      const sessionId = memoriExtension.getSessionId();
+      
+      await memoriExtension.storeConversationTurn(
+        'Hello',
+        'Hi there!',
+        conversationId,
+        sessionId
+      );
+      
+      await memoriExtension.storeConversationTurn(
+        'How are you?',
+        "I'm good!",
+        conversationId,
+        sessionId
+      );
 
       const results = await memoriExtension.searchConversationHistory(
         'hello',
-        'session-123',
+        conversationId ?? undefined,
+        sessionId,
         5
       );
 
-      expect(results).toHaveLength(2);
-      expect(results[0]).toEqual({
-        userInput: 'Hello',
-        assistantResponse: 'Hi there!',
-        sessionId: 'session-123'
-      });
+      expect(results).toHaveLength(1); // Only one that contains 'hello'
+      expect(results[0].userInput).toBe('Hello');
+      expect(results[0].assistantResponse).toBe('Hi there!');
+      expect(results[0].conversationId).toBe(conversationId);
+      expect(results[0].sessionId).toBe(sessionId);
     });
 
-    it('should filter results by session ID', async () => {
-      mockClient.callTool.mockResolvedValue({
-        content: [{
-          type: 'text',
-          text: `Key: [test-project][conversation] CONVERSATION_TURN [session-123]: USER: Hello | ASSISTANT: Hi there!
----
-Key: [test-project][conversation] CONVERSATION_TURN [other-session]: USER: Goodbye | ASSISTANT: See you later!`
-        }]
-      });
+    it('should filter results by conversation ID', async () => {
+      const conversationId1 = memoriExtension.getConversationId();
+      const sessionId = memoriExtension.getSessionId();
+      
+      // Store conversations in different conversation IDs
+      await memoriExtension.storeConversationTurn(
+        'Hello from conversation 1',
+        'Hi there from conversation 1!',
+        conversationId1,
+        sessionId
+      );
+      
+      await memoriExtension.storeConversationTurn(
+        'Hello from conversation 2',
+        'Hi there from conversation 2!',
+        'different-conversation',
+        sessionId
+      );
 
       const results = await memoriExtension.searchConversationHistory(
-        'hello',
-        'session-123',
+        'Hello',
+        conversationId1 ?? undefined,
+        undefined,
         5
       );
 
+      // Should only return results from the specific conversation ID
       expect(results).toHaveLength(1);
-      expect(results[0].sessionId).toBe('session-123');
+      expect(results[0].conversationId).toBe(conversationId1);
+      expect(results[0].userInput).toBe('Hello from conversation 1');
     });
 
     it('should return empty array when no results found', async () => {
-      mockClient.callTool.mockResolvedValue({
-        content: [{ type: 'text', text: '🔍 No memories found in [test-project] for query: nonexistent' }]
-      });
-
+      const conversationId = memoriExtension.getConversationId();
+      
       const results = await memoriExtension.searchConversationHistory(
         'nonexistent',
-        'session-123',
+        conversationId ?? undefined,
+        undefined,
         5
       );
 
@@ -155,48 +191,39 @@ Key: [test-project][conversation] CONVERSATION_TURN [other-session]: USER: Goodb
     });
   });
 
-  describe('storeCodeContext', () => {
-    it('should store code context successfully', async () => {
-      mockClient.callTool.mockResolvedValue({
-        content: [{ type: 'text', text: '✅ Stored memory for [code-context] in [test-project]: CODE_CONTEXT' }]
-      });
+  describe('getConversationId', () => {
+    it('should return the current conversation ID', () => {
+      const conversationId = memoriExtension.getConversationId();
+      expect(conversationId).toBeTruthy();
+      expect(typeof conversationId).toBe('string');
+    });
+  });
 
+  describe('setConversationId', () => {
+    it('should set a new conversation ID', () => {
+      const newConversationId = 'new-conversation-789';
+      memoriExtension.setConversationId(newConversationId);
+      expect(memoriExtension.getConversationId()).toBe(newConversationId);
+    });
+  });
+
+  describe('storeCodeContext', () => {
+    it('should return false since code context storage requires MCP in local mode', async () => {
       const result = await memoriExtension.storeCodeContext(
         'src/main.py',
         'print("Hello, World!")',
         'Simple hello world program'
       );
 
-      expect(result).toBe(true);
-      expect(mockClient.callTool).toHaveBeenCalledWith({
-        name: 'store_memory',
-        arguments: {
-          content: expect.stringContaining('CODE_CONTEXT'),
-          project_id: 'test-project',
-          agent_role: 'code-context'
-        }
-      });
+      expect(result).toBe(false);
     });
   });
 
   describe('searchCodeContext', () => {
-    it('should search code context and return results', async () => {
-      mockClient.callTool.mockResolvedValue({
-        content: [{
-          type: 'text',
-          text: `Key: [test-project][code-context] CODE_CONTEXT [src/main.py]: Simple hello world program
-print("Hello, World!")`
-        }]
-      });
-
+    it('should return empty array since code context search requires MCP in local mode', async () => {
       const results = await memoriExtension.searchCodeContext('hello world', 5);
 
-      expect(results).toHaveLength(1);
-      expect(results[0]).toEqual({
-        filePath: 'src/main.py',
-        codeSnippet: 'print("Hello, World!")',
-        description: 'Simple hello world program'
-      });
+      expect(results).toHaveLength(0);
     });
   });
 });

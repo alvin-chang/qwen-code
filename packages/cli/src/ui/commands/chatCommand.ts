@@ -274,9 +274,103 @@ const deleteCommand: SlashCommand = {
   },
 };
 
+const clearCommand: SlashCommand = {
+  name: 'clear',
+  description: 'Clear the last X conversation turns. Usage: /chat clear <number> or /chat clear all',
+  kind: CommandKind.BUILT_IN,
+  action: async (context, args): Promise<MessageActionReturn> => {
+    const arg = args.trim();
+    if (!arg) {
+      return {
+        type: 'message',
+        messageType: 'error',
+        content: 'Missing argument. Usage: /chat clear <number> or /chat clear all',
+      };
+    }
+
+    const { config } = context.services;
+    if (!config) {
+      return {
+        type: 'message',
+        messageType: 'error',
+        content: 'Configuration not available.',
+      };
+    }
+    
+    const geminiClient = config.getGeminiClient();
+    
+    if (!geminiClient) {
+      return {
+        type: 'message',
+        messageType: 'error',
+        content: 'No chat client available to clear conversation history.',
+      };
+    }
+
+    let history = geminiClient.getHistory();
+    
+    if (arg.toLowerCase() === 'all') {
+      // Keep the first 2 messages (environment context and model acknowledgment) and clear the rest
+      if (history.length > 2) {
+        const envContext = history.slice(0, 2);
+        geminiClient.setHistory(envContext);
+        return {
+          type: 'message',
+          messageType: 'info',
+          content: `Cleared ${history.length - 2} conversation turns. Kept environment context.`,
+        };
+      } else {
+        return {
+          type: 'message',
+          messageType: 'info',
+          content: 'No conversation turns to clear.',
+        };
+      }
+    } else {
+      const numTurns = parseInt(arg, 10);
+      if (isNaN(numTurns) || numTurns <= 0) {
+        return {
+          type: 'message',
+          messageType: 'error',
+          content: 'Invalid number. Usage: /chat clear <number> or /chat clear all',
+        };
+      }
+
+      if (numTurns >= history.length) {
+        // If trying to clear more than available, clear all but keep environment context
+        if (history.length > 2) {
+          const envContext = history.slice(0, 2);
+          geminiClient.setHistory(envContext);
+          return {
+            type: 'message',
+            messageType: 'info',
+            content: `Cleared ${history.length - 2} conversation turns (all available). Kept environment context.`,
+          };
+        } else {
+          return {
+            type: 'message',
+            messageType: 'info',
+            content: 'No conversation turns to clear.',
+          };
+        }
+      }
+
+      // Remove the last numTurns from the history
+      const newHistory = history.slice(0, -numTurns);
+      geminiClient.setHistory(newHistory);
+      
+      return {
+        type: 'message',
+        messageType: 'info',
+        content: `Cleared the last ${numTurns} conversation turns.`,
+      };
+    }
+  },
+};
+
 export const chatCommand: SlashCommand = {
   name: 'chat',
   description: 'Manage conversation history.',
   kind: CommandKind.BUILT_IN,
-  subCommands: [listCommand, saveCommand, resumeCommand, deleteCommand],
+  subCommands: [listCommand, saveCommand, resumeCommand, deleteCommand, clearCommand],
 };

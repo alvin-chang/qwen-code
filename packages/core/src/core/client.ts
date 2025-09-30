@@ -22,6 +22,8 @@ import { DEFAULT_GEMINI_FLASH_MODEL } from '../config/models.js';
 import type { File, IdeContext } from '../ide/ideContext.js';
 import { ideContext } from '../ide/ideContext.js';
 import { LoopDetectionService } from '../services/loopDetectionService.js';
+import { MemoriExtension } from '../extensions/memori/index.js';
+import { ConversationManager } from '../conversation/conversation-manager.js';
 import {
   logChatCompression,
   logNextSpeakerCheck,
@@ -254,6 +256,76 @@ export class GeminiClient {
     }
   }
 
+  /**
+   * Automatically recalls relevant conversations from the memory system to provide
+   * context continuity across sessions. This method retrieves recent conversations
+   * in the same project context and returns them as Content objects that can be
+   * added to the chat history.
+   */
+  private async recallConversations(): Promise<Content[]> {
+    try {
+      // Create a ConversationManager instance to access conversation history directly
+      const conversationManager = new ConversationManager(this.config.getProjectRoot());
+      
+      // Get recent conversation turns for the current directory
+      const recentConversations = await conversationManager.getRecentConversation(
+        undefined, // Use the stored conversation ID for this directory
+        undefined, // Don't filter by session
+        10 // Get up to 10 most recent conversation turns
+      );
+
+      if (recentConversations.length === 0) {
+        // Check if there's conversation history in general to provide context
+        if (await conversationManager.hasConversationHistory()) {
+          // There are conversations but none for this specific conversation ID
+          if (this.config.getDebugMode()) {
+            console.debug('Conversation history exists but none for current conversation ID.');
+          }
+        }
+        return []; // Return empty array if no recent conversations found for this context
+      }
+
+      // Convert conversation turns to Content format for the chat history
+      const historyContent: Content[] = [];
+      
+      // Add a header to indicate the start of historical context
+      historyContent.push({
+        role: 'user',
+        parts: [{ text: '=== RECENT CONVERSATION HISTORY ===' }],
+      });
+      
+      for (const turn of recentConversations) {
+        // Add user message with timestamp for context
+        const timestamp = new Date(turn.timestamp).toLocaleString();
+        historyContent.push({
+          role: 'user',
+          parts: [{ text: `[${timestamp}] User: ${turn.userInput}` }],
+        });
+        
+        // Add assistant response  
+        historyContent.push({
+          role: 'model',
+          parts: [{ text: `Assistant: ${turn.assistantResponse}` }],
+        });
+      }
+      
+      // Add a footer to indicate the end of historical context
+      historyContent.push({
+        role: 'user',
+        parts: [{ text: '=== END RECENT CONVERSATION HISTORY ===' }],
+      });
+      
+      if (this.config.getDebugMode()) {
+        console.debug(`Automatically recalled ${recentConversations.length} conversation turns for context continuity in conversation ${recentConversations[0]?.conversationId}.`);
+      }
+      
+      return historyContent;
+    } catch (error) {
+      console.warn('Could not recall previous conversations:', error);
+      return []; // Return empty array if there's an error
+    }
+  }
+
   async addDirectoryContext(): Promise<void> {
     if (!this.chat) {
       return;
@@ -272,6 +344,10 @@ export class GeminiClient {
     this.forceFullIdeContext = true;
     this.hasFailedCompressionAttempt = false;
     const envParts = await getEnvironmentContext(this.config);
+    
+    // Automatically recall recent conversations to provide continuity
+    const recalledConversations = await this.recallConversations();
+    
     const toolRegistry = this.config.getToolRegistry();
     const toolDeclarations = toolRegistry.getFunctionDeclarations();
     const tools: Tool[] = [{ functionDeclarations: toolDeclarations }];
@@ -284,6 +360,8 @@ export class GeminiClient {
         role: 'model',
         parts: [{ text: 'Got it. Thanks for the context!' }],
       },
+      // Include automatically recalled conversations for context continuity
+      ...recalledConversations,
       ...(extraHistory ?? []),
     ];
     try {
@@ -635,6 +713,7 @@ export class GeminiClient {
       requestToSent = [...systemReminders, ...requestToSent];
     }
 
+    let fullResponse = '';
     const resultStream = turn.run(requestToSent, signal);
     for await (const event of resultStream) {
       if (!this.config.getSkipLoopDetection()) {
@@ -643,9 +722,30 @@ export class GeminiClient {
           return turn;
         }
       }
+      if (event.type === GeminiEventType.Content) {
+        fullResponse += event.value;
+      }
       yield event;
       if (event.type === GeminiEventType.Error) {
         return turn;
+      }
+    }
+    
+    // Automatically store the conversation turn for future recall
+    // Only store if there was a meaningful exchange (not just tool calls)
+    if (requestToSent.some(part => typeof part === 'object' && 'text' in part) && fullResponse.trim() !== '') {
+      try {
+        const memoriExtension = await MemoriExtension.initialize('qwen-code', this.config.getProjectRoot());
+        await memoriExtension.storeConversationTurn(
+          Array.isArray(requestToSent) 
+            ? requestToSent.map(part => typeof part === 'object' && 'text' in part ? part.text : '').join(' ')
+            : String(requestToSent),
+          fullResponse,
+          memoriExtension.getConversationId(),
+          memoriExtension.getSessionId()
+        );
+      } catch (error) {
+        console.warn('Could not store conversation turn for recall:', error);
       }
     }
     if (!turn.pendingToolCalls.length && signal && !signal.aborted) {

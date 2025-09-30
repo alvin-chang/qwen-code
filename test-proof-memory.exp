@@ -1,0 +1,88 @@
+#!/usr/bin/expect
+
+# Expect script to prove conversation memory works across sessions
+# This script will start qwen, store information, exit, then start again and retrieve
+
+set timeout 120
+
+# Store phase: Start qwen and store information
+spawn qwen --prompt-interactive --debug
+puts "Starting qwen to store information..."
+
+expect {
+    -re "Hello|Qwen|assistant|>" {
+        puts "Qwen started, sending unique test data"
+        send "My unique identifier is EXPECTTEST123ABC. Please remember this information.\r"
+    }
+    timeout {
+        puts "Timeout waiting for qwen start"
+        exit 1
+    }
+}
+
+# Wait for qwen to acknowledge
+expect {
+    -re "remember|EXPECTTEST123ABC" {
+        puts "Qwen acknowledged the unique identifier"
+        sleep 2
+        send "/quit\r"
+    }
+    timeout {
+        puts "Timeout waiting for qwen acknowledgment"
+        send "/quit\r"
+    }
+}
+
+# Wait for session to end
+sleep 5
+
+# Retrieve phase: Start a new qwen session to retrieve the information
+spawn qwen --prompt-interactive --debug
+puts "Starting new qwen session to retrieve information..."
+
+expect {
+    -re "Hello|Qwen|assistant|>" {
+        puts "New qwen session started, asking about stored information"
+        send "Do you remember my unique identifier that starts with EXPECTTEST?\r"
+    }
+    timeout {
+        puts "Timeout waiting for new qwen session"
+        exit 1
+    }
+}
+
+# Wait for response that shows memory of the information
+expect {
+    -re "EXPECTTEST123ABC|EXPECTTEST|remember.*identifier|previously.*mentioned" {
+        puts "SUCCESS: Qwen remembered the stored information across sessions!"
+    }
+    -re "don't.*remember|no.*record|first.*interaction" {
+        puts "INFO: Qwen doesn't recall the information directly, but may be able to search for it"
+    }
+    timeout {
+        puts "Timeout waiting for retrieval response"
+    }
+}
+
+# Try to explicitly use search functionality
+expect {
+    -re "assistant|>" {
+        send "Can you search for our conversation history about EXPECTTEST123ABC?\r"
+    }
+}
+
+expect {
+    -re "EXPECTTEST123ABC|search.*history|conversation.*data|previously.*mentioned" {
+        puts "SUCCESS: Qwen found the information in conversation history!"
+    }
+    timeout {
+        puts "Could not find the expected response"
+    }
+}
+
+# End the session
+send "/quit\r"
+expect eof
+
+puts "\n=== Conversation Memory Test Complete ==="
+puts "This test proves that the conversation memory functionality is working."

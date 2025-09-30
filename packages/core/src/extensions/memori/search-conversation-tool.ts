@@ -5,18 +5,18 @@
  */
 
 import type { ToolResult } from '../../tools/tools.js';
+import type { FunctionDeclaration } from '@google/genai';
 import {
   BaseDeclarativeTool,
   BaseToolInvocation,
   Kind,
 } from '../../tools/tools.js';
-import type { FunctionDeclaration } from '@google/genai';
 import { MemoriExtension } from './index.js';
 
 const searchConversationToolSchemaData: FunctionDeclaration = {
   name: 'search_conversation_history',
   description:
-    'Searches conversation history in persistent memory with session isolation. Use this to retrieve previously stored conversation context.',
+    'Searches conversation history in persistent memory with conversation ID support. Use this to retrieve previously stored conversation context.',
   parametersJsonSchema: {
     type: 'object',
     properties: {
@@ -25,10 +25,15 @@ const searchConversationToolSchemaData: FunctionDeclaration = {
         description:
           'The search query to find relevant conversation turns',
       },
+      conversation_id: {
+        type: 'string',
+        description:
+          'Optional conversation identifier to search within. If not provided, searches within the directory\'s conversation ID.',
+      },
       session_id: {
         type: 'string',
         description:
-          'Optional session identifier to search within. If not provided, searches within the current session.',
+          'Optional session identifier to filter results. If not provided, returns results from all sessions in the conversation.',
       },
       limit: {
         type: 'integer',
@@ -43,7 +48,7 @@ const searchConversationToolSchemaData: FunctionDeclaration = {
 };
 
 const searchConversationToolDescription = `
-Searches conversation history in persistent memory with session isolation.
+Searches conversation history in persistent memory with conversation ID support.
 
 Use this tool when you need to retrieve previously stored conversation context. This is particularly useful for:
 
@@ -51,17 +56,19 @@ Use this tool when you need to retrieve previously stored conversation context. 
 - Finding important facts or decisions made during previous interactions
 - Continuing discussions or tasks from previous sessions
 
-The tool automatically searches within the current session, ensuring that conversation context is properly isolated.
+The tool searches within the specified conversation ID (or the directory's conversation ID if not specified), allowing multiple sessions to access the same conversation while maintaining isolation between different conversations.
 
 ## Parameters
 
-- \`query\` (string, required): The search query to find relevant conversation turns
-- \`session_id\` (string, optional): Session identifier to search within. If not provided, searches within the current session.
-- \`limit\` (integer, optional): Maximum number of results to return (default: 5, maximum: 20)
+- 'query' (string, required): The search query to find relevant conversation turns
+- 'conversation_id' (string, optional): Conversation identifier to search within. If not provided, searches within the directory's conversation ID.
+- 'session_id' (string, optional): Session identifier to filter results. If not provided, returns results from all sessions in the conversation.
+- 'limit' (integer, optional): Maximum number of results to return (default: 5, maximum: 20)
 `;
 
 interface SearchConversationParams {
   query: string;
+  conversation_id?: string;
   session_id?: string;
   limit?: number;
 }
@@ -78,25 +85,26 @@ class SearchConversationToolInvocation extends BaseToolInvocation<
   }
 
   getDescription(): string {
-    return `Search conversation history for: "${this.params.query}" in session ${this.params.session_id || this.memoriExtension.getSessionId()}`;
+    return `Search conversation history for: "${this.params.query}" in conversation ${this.params.conversation_id || this.memoriExtension.getConversationId()}`;
   }
 
   async execute(_signal: AbortSignal): Promise<ToolResult> {
-    const { query, session_id, limit } = this.params;
+    const { query, conversation_id, session_id, limit } = this.params;
 
     try {
       const results = await this.memoriExtension.searchConversationHistory(
         query,
+        conversation_id,
         session_id,
         limit || 5
       );
 
       if (results.length > 0) {
         const formattedResults = results.map((result, index) => 
-          `#${index + 1} [Session: ${result.sessionId}]
+          `#${index + 1} [Conversation: ${result.conversationId}, Session: ${result.sessionId}]
 User: ${result.userInput}
 Assistant: ${result.assistantResponse}`
-        ).join('\n\n');
+        ).join('\\n\\n');
         
         const successMessage = `🔍 Found ${results.length} relevant conversation turns:
 
@@ -104,7 +112,7 @@ ${formattedResults}`;
         return {
           llmContent: JSON.stringify({
             success: true,
-            results: results,
+            results,
             count: results.length,
           }),
           returnDisplay: successMessage,

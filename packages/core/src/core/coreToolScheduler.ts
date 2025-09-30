@@ -662,10 +662,14 @@ export class CoreToolScheduler {
             continue;
           }
 
-          const confirmationDetails =
-            await invocation.shouldConfirmExecute(signal);
-
-          if (!confirmationDetails) {
+          const allowedTools = this.config.getAllowedTools() || [];
+          const isPlanMode =
+            this.config.getApprovalMode() === ApprovalMode.PLAN;
+          const isExitPlanModeTool = reqInfo.name === 'exit_plan_mode';
+          const isYoloMode = this.config.getApprovalMode() === ApprovalMode.YOLO;
+          
+          // Check for YOLO mode or allowed tools first to avoid hanging on shouldConfirmExecute
+          if (isYoloMode || doesToolInvocationMatch(toolCall.tool, invocation, allowedTools)) {
             this.setToolCallOutcome(
               reqInfo.callId,
               ToolConfirmationOutcome.ProceedAlways,
@@ -674,12 +678,10 @@ export class CoreToolScheduler {
             continue;
           }
 
-          const allowedTools = this.config.getAllowedTools() || [];
-          const isPlanMode =
-            this.config.getApprovalMode() === ApprovalMode.PLAN;
-          const isExitPlanModeTool = reqInfo.name === 'exit_plan_mode';
-
           if (isPlanMode && !isExitPlanModeTool) {
+            // In plan mode, block non-read-only tools
+            const confirmationDetails =
+              await invocation.shouldConfirmExecute(signal);
             if (confirmationDetails) {
               this.setStatusInternal(reqInfo.callId, 'error', {
                 callId: reqInfo.callId,
@@ -695,16 +697,20 @@ export class CoreToolScheduler {
             } else {
               this.setStatusInternal(reqInfo.callId, 'scheduled');
             }
-          } else if (
-            this.config.getApprovalMode() === ApprovalMode.YOLO ||
-            doesToolInvocationMatch(toolCall.tool, invocation, allowedTools)
-          ) {
-            this.setToolCallOutcome(
-              reqInfo.callId,
-              ToolConfirmationOutcome.ProceedAlways,
-            );
-            this.setStatusInternal(reqInfo.callId, 'scheduled');
           } else {
+            // Only call shouldConfirmExecute in non-bypass modes to avoid hanging
+            const confirmationDetails =
+              await invocation.shouldConfirmExecute(signal);
+
+            if (!confirmationDetails) {
+              this.setToolCallOutcome(
+                reqInfo.callId,
+                ToolConfirmationOutcome.ProceedAlways,
+              );
+              this.setStatusInternal(reqInfo.callId, 'scheduled');
+              continue;
+            }
+
             // Allow IDE to resolve confirmation
             if (
               confirmationDetails.type === 'edit' &&

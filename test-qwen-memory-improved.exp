@@ -1,0 +1,80 @@
+#!/usr/bin/expect
+
+# Expect script to test qwen's conversation memory functionality
+# This script handles the interactive UI nature of qwen
+
+set timeout 120
+
+# Function to send a message and handle the UI
+proc send_message {msg} {
+    global spawn_id
+    puts "Sending: $msg"
+    send "$msg\r"
+    # Wait a bit for processing
+    sleep 5
+}
+
+# Function to wait for specific UI elements
+proc wait_for_ui {pattern} {
+    global spawn_id
+    expect {
+        -re $pattern {
+            puts "UI element found: $pattern"
+            exp_continue
+        }
+        timeout {
+            puts "Timeout waiting for UI element: $pattern"
+        }
+    }
+}
+
+# Start qwen in interactive mode with debug to see more output
+spawn qwen --prompt-interactive --debug
+
+# Wait for initial UI to load and send first message
+expect {
+    -re "Hello|Qwen|assistant|Type your message" {
+        puts "Qwen interface loaded"
+        send_message "My name is ConversationTest. Remember this information."
+    }
+    timeout {
+        puts "Timeout waiting for qwen interface"
+        exit 1
+    }
+}
+
+# Wait for response and then ask about the information
+expect {
+    -re "ConversationTest|remember|name" {
+        puts "Qwen acknowledged the information"
+        send_message "What is my name?"
+    }
+    timeout {
+        puts "Timeout waiting for first response"
+        send_message "What is my name?"
+    }
+}
+
+# Wait for response about the name
+expect {
+    -re "ConversationTest|name.*ConversationTest" {
+        puts "SUCCESS: Qwen remembers the name!"
+    }
+    -re "don't.*remember|no.*information|first.*interaction" {
+        puts "INFO: Qwen doesn't remember the name"
+    }
+    timeout {
+        puts "Timeout waiting for name recall"
+    }
+}
+
+# Wait before exiting
+sleep 3
+
+# Send exit command
+send_message "/quit"
+
+# Wait for process to end
+expect eof
+
+puts "\n=== Conversation Memory Test Complete ==="

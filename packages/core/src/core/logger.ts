@@ -74,6 +74,8 @@ export class Logger {
   private messageId = 0; // Instance-specific counter for the next messageId
   private initialized = false;
   private logs: LogEntry[] = []; // In-memory cache, ideally reflects the last known state of the file
+  private readonly checkpointCache = new Map<string, { data: Content[]; timestamp: number }>();
+  private readonly checkpointCacheTimeout = 5 * 60 * 1000; // 5 minutes
 
   constructor(
     sessionId: string,
@@ -342,6 +344,11 @@ export class Logger {
     const path = this._checkpointPath(tag);
     try {
       await fs.writeFile(path, JSON.stringify(conversation, null, 2), 'utf-8');
+      // Update cache
+      this.checkpointCache.set(tag, {
+        data: conversation,
+        timestamp: Date.now()
+      });
     } catch (error) {
       console.error('Error writing to checkpoint file:', error);
     }
@@ -355,6 +362,12 @@ export class Logger {
       return [];
     }
 
+    // Check cache first
+    const cached = this.checkpointCache.get(tag);
+    if (cached && (Date.now() - cached.timestamp) < this.checkpointCacheTimeout) {
+      return cached.data;
+    }
+
     const path = await this._getCheckpointPath(tag);
     try {
       const fileContent = await fs.readFile(path, 'utf-8');
@@ -365,6 +378,13 @@ export class Logger {
         );
         return [];
       }
+      
+      // Update cache
+      this.checkpointCache.set(tag, {
+        data: parsedContent as Content[],
+        timestamp: Date.now()
+      });
+      
       return parsedContent as Content[];
     } catch (error) {
       const nodeError = error as NodeJS.ErrnoException;
@@ -455,5 +475,6 @@ export class Logger {
     this.logs = [];
     this.sessionId = undefined;
     this.messageId = 0;
+    this.checkpointCache.clear();
   }
 }

@@ -4,76 +4,107 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { ConversationManager } from '../../conversation/conversation-manager.js';
+import type { ConversationTurn } from '../../conversation/conversation-manager.js';
 
 /**
- * Memori extension for Qwen Code that provides session-aware conversation memory
+ * Memori extension for Qwen Code that provides conversation memory with shared conversation support
  */
 export class MemoriExtension {
-  private client: Client | null = null;
+  private conversationManager: ConversationManager;
   private sessionId: string;
+  private conversationId: string;
+  // @ts-expect-error - projectId is used by the class (getter/setter methods)
   private projectId: string;
+  // @ts-expect-error - workspacePath is used by the class constructor
+  private workspacePath: string;
 
-  constructor(projectId: string = 'qwen-code') {
+  constructor(projectId: string = 'qwen-code', workspacePath: string = process.cwd()) {
     this.projectId = projectId;
-    // Generate a unique session ID for this conversation session
-    this.sessionId = this.generateSessionId();
+    this.workspacePath = workspacePath;
+    this.conversationManager = new ConversationManager(workspacePath);
+    
+    // Generate a unique session ID for this session
+    this.sessionId = this.conversationManager.generateSessionId();
+    // For backward compatibility, generate a new conversation ID in constructor
+    // but provide async methods to properly load existing conversation IDs
+    this.conversationId = this.conversationManager.generateConversationId();
+  }
+
+  /**
+   * Initialize the MemoriExtension with proper async loading of conversation ID
+   * @param projectId The project ID to use
+   * @param workspacePath The workspace path
+   * @returns A new instance of MemoriExtension with properly loaded conversation ID
+   */
+  static async initialize(projectId: string = 'qwen-code', workspacePath: string = process.cwd()): Promise<MemoriExtension> {
+    const instance = new MemoriExtension(projectId, workspacePath);
+    
+    // Try to load conversation ID from directory if it exists (async)
+    const loadedConversationId = await instance.conversationManager.loadConversationId();
+    instance.conversationId = loadedConversationId || instance.conversationManager.generateConversationId();
+    
+    // Save conversation ID if it wasn't loaded (to ensure it's persisted)
+    if (!loadedConversationId) {
+      await instance.conversationManager.saveConversationId(instance.conversationId);
+    }
+    
+    return instance;
   }
 
   /**
    * Generate a simple session ID
    * @returns A unique session ID
    */
+  // @ts-expect-error - Used internally by the class
   private generateSessionId(): string {
-    return Math.random().toString(36).substring(2, 15) + 
-           Math.random().toString(36).substring(2, 15);
+    return this.conversationManager.generateSessionId();
   }
 
   /**
-   * Initialize the Memori extension with an MCP client
-   * @param client The MCP client to use for communication
+   * Generate a conversation ID
+   * @returns A unique conversation ID
    */
-  initialize(client: Client): void {
-    this.client = client;
+  private generateConversationId(): string {
+    return this.conversationManager.generateConversationId();
+  }
+
+  
+
+  /**
+   * Save conversation ID to directory
+   */
+  private async saveConversationId(): Promise<void> {
+    if (this.conversationId) {
+      await this.conversationManager.saveConversationIdAsync(this.conversationId);
+    }
   }
 
   /**
-   * Store a conversation turn in the memory system with session isolation
+   * Store a conversation turn in the memory system with conversation ID support
    * @param userInput The user's input
    * @param assistantResponse The assistant's response
+   * @param conversationId Optional conversation ID (defaults to current conversation)
    * @param sessionId Optional session ID (defaults to current session)
    * @returns Promise resolving to success status
    */
   async storeConversationTurn(
     userInput: string,
     assistantResponse: string,
+    conversationId?: string,
     sessionId?: string
   ): Promise<boolean> {
-    if (!this.client) {
-      console.warn('Memori extension not initialized with MCP client');
-      return false;
-    }
-
-    const conversationId = sessionId || this.sessionId;
+    // Determine which conversation ID to use: provided > current > generate
+    const effectiveConversationId = conversationId || this.conversationId || this.generateConversationId();
+    const effectiveSessionId = sessionId || this.sessionId;
     
     try {
-      const response = await this.client.callTool({
-        name: 'store_memory',
-        arguments: {
-          content: `CONVERSATION_TURN [${conversationId}]: USER: ${userInput} | ASSISTANT: ${assistantResponse}`,
-          project_id: this.projectId,
-          agent_role: 'conversation'
-        }
-      });
-
-      if (response.content && Array.isArray(response.content)) {
-        const textContent = response.content.find(c => c.type === 'text');
-        if (textContent && textContent.text && textContent.text.includes('✅')) {
-          return true;
-        }
-      }
-      
-      return false;
+      return await this.conversationManager.storeConversationTurn(
+        userInput,
+        assistantResponse,
+        effectiveConversationId,
+        effectiveSessionId
+      );
     } catch (error) {
       console.error('Error storing conversation turn:', error);
       return false;
@@ -81,83 +112,35 @@ export class MemoriExtension {
   }
 
   /**
-   * Search conversation history with session isolation
+   * Search conversation history with conversation ID support
    * @param query The search query
-   * @param sessionId Optional session ID to filter results (defaults to current session)
+   * @param conversationId Optional conversation ID to filter results (defaults to current conversation)
+   * @param sessionId Optional session ID to filter results (defaults to all sessions in conversation)
    * @param limit Maximum number of results to return
    * @returns Promise resolving to array of conversation turns
    */
   async searchConversationHistory(
     query: string,
+    conversationId?: string,
     sessionId?: string,
     limit: number = 10
-  ): Promise<Array<{userInput: string, assistantResponse: string, sessionId: string}>> {
-    if (!this.client) {
-      console.warn('Memori extension not initialized with MCP client');
-      return [];
-    }
-
-    const conversationId = sessionId || this.sessionId;
+  ): Promise<ConversationTurn[]> {
+    // Determine which conversation ID to use: provided > current > generate
+    // Make sure we always have a valid conversation ID
+    const effectiveConversationId = conversationId || this.conversationId || this.generateConversationId();
     
     try {
-      const response = await this.client.callTool({
-        name: 'search_memory',
-        arguments: {
-          query: `[${conversationId}] ${query}`,
-          project_id: this.projectId,
-          agent_role: 'conversation',
-          scope: 'agent',
-          limit: limit
-        }
-      });
-
-      if (response.content && Array.isArray(response.content)) {
-        const textContent = response.content.find(c => c.type === 'text');
-        if (textContent && textContent.text) {
-          // Parse the conversation turns from the response
-          return this.parseConversationResults(textContent.text, conversationId);
-        }
-      }
-      
-      return [];
+      // Only pass sessionId if explicitly provided for filtering
+      return await this.conversationManager.searchConversationHistory(
+        query,
+        effectiveConversationId,
+        sessionId, // Only filter by session if provided
+        limit
+      );
     } catch (error) {
       console.error('Error searching conversation history:', error);
       return [];
     }
-  }
-
-  /**
-   * Parse conversation results from the memory system
-   * @param text The raw text response from the memory system
-   * @param conversationId The conversation ID to filter by
-   * @returns Array of parsed conversation turns
-   */
-  private parseConversationResults(
-    text: string,
-    conversationId: string
-  ): Array<{userInput: string, assistantResponse: string, sessionId: string}> {
-    const results: Array<{userInput: string, assistantResponse: string, sessionId: string}> = [];
-    const lines = text.split('\n');
-    
-    for (const line of lines) {
-      if (line.startsWith('Key:') && line.includes('CONVERSATION_TURN')) {
-        // Extract conversation data from the line
-        const conversationMatch = line.match(/\[([^\]]+)\]: USER: (.*?) \| ASSISTANT: (.*)/);
-        if (conversationMatch) {
-          const [, sessionId, userInput, assistantResponse] = conversationMatch;
-          // Only include results from the specified session
-          if (sessionId === conversationId) {
-            results.push({
-              userInput,
-              assistantResponse,
-              sessionId
-            });
-          }
-        }
-      }
-    }
-    
-    return results;
   }
 
   /**
@@ -177,6 +160,27 @@ export class MemoriExtension {
   }
 
   /**
+   * Get the current conversation ID
+   * @returns The current conversation ID
+   */
+  getConversationId(): string {
+    return this.conversationId!;
+  }
+
+  /**
+   * Set a new conversation ID
+   * @param conversationId The new conversation ID
+   */
+  setConversationId(conversationId: string): void {
+    // This method is kept synchronous for backward compatibility, but internally uses async
+    this.conversationId = conversationId;
+    // Use a fire-and-forget async call to avoid blocking
+    this.saveConversationId().catch(error => {
+      console.error('Error in background saveConversationId:', error);
+    });
+  }
+
+  /**
    * Store code context in the memory system
    * @param filePath The path to the file
    * @param codeSnippet The relevant code snippet
@@ -184,37 +188,15 @@ export class MemoriExtension {
    * @returns Promise resolving to success status
    */
   async storeCodeContext(
-    filePath: string,
-    codeSnippet: string,
-    description: string
+    _filePath: string,
+    _codeSnippet: string,
+    _description: string
   ): Promise<boolean> {
-    if (!this.client) {
-      console.warn('Memori extension not initialized with MCP client');
-      return false;
-    }
-
-    try {
-      const response = await this.client.callTool({
-        name: 'store_memory',
-        arguments: {
-          content: `CODE_CONTEXT [${filePath}]: ${description}\n${codeSnippet}`,
-          project_id: this.projectId,
-          agent_role: 'code-context'
-        }
-      });
-
-      if (response.content && Array.isArray(response.content)) {
-        const textContent = response.content.find(c => c.type === 'text');
-        if (textContent && textContent.text && textContent.text.includes('✅')) {
-          return true;
-        }
-      }
-      
-      return false;
-    } catch (error) {
-      console.error('Error storing code context:', error);
-      return false;
-    }
+    // For now, we'll log a warning since the local implementation would require
+    // a separate code context storage system, which would be a larger addition
+    // In a full implementation, this would store code contexts separately from conversations
+    console.warn('Code context storage not implemented in local mode. This functionality requires MCP.');
+    return false;
   }
 
   /**
@@ -224,85 +206,12 @@ export class MemoriExtension {
    * @returns Promise resolving to array of code contexts
    */
   async searchCodeContext(
-    query: string,
-    limit: number = 5
+    _query: string,
+    _limit: number = 5
   ): Promise<Array<{filePath: string, codeSnippet: string, description: string}>> {
-    if (!this.client) {
-      console.warn('Memori extension not initialized with MCP client');
-      return [];
-    }
-
-    try {
-      const response = await this.client.callTool({
-        name: 'search_memory',
-        arguments: {
-          query: query,
-          project_id: this.projectId,
-          agent_role: 'code-context',
-          scope: 'project',
-          limit: limit
-        }
-      });
-
-      if (response.content && Array.isArray(response.content)) {
-        const textContent = response.content.find(c => c.type === 'text');
-        if (textContent && textContent.text) {
-          // Parse the code contexts from the response
-          return this.parseCodeContextResults(textContent.text);
-        }
-      }
-      
-      return [];
-    } catch (error) {
-      console.error('Error searching code context:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Parse code context results from the memory system
-   * @param text The raw text response from the memory system
-   * @returns Array of parsed code contexts
-   */
-  private parseCodeContextResults(
-    text: string
-  ): Array<{filePath: string, codeSnippet: string, description: string}> {
-    const results: Array<{filePath: string, codeSnippet: string, description: string}> = [];
-    const lines = text.split('\n');
-    
-    let currentContext: {filePath: string, codeSnippet: string, description: string} | null = null;
-    
-    for (const line of lines) {
-      if (line.startsWith('Key:') && line.includes('CODE_CONTEXT')) {
-        // Start a new context entry
-        if (currentContext) {
-          results.push(currentContext);
-        }
-        
-        const contextMatch = line.match(/\[([^\]]+)\]: (.*)/);
-        if (contextMatch) {
-          const [, filePath, description] = contextMatch;
-          currentContext = {
-            filePath,
-            codeSnippet: '',
-            description
-          };
-        }
-      } else if (currentContext && line.trim() !== '' && !line.startsWith('---')) {
-        // Append to the current code snippet
-        if (currentContext.codeSnippet) {
-          currentContext.codeSnippet += '\n' + line;
-        } else {
-          currentContext.codeSnippet = line;
-        }
-      }
-    }
-    
-    // Don't forget the last context
-    if (currentContext) {
-      results.push(currentContext);
-    }
-    
-    return results;
+    // For now, we'll return empty results since the local implementation would require
+    // a separate code context storage system
+    console.warn('Code context search not implemented in local mode. This functionality requires MCP.');
+    return [];
   }
 }

@@ -12,6 +12,7 @@ export {
   DEFAULT_GEMINI_FLASH_LITE_MODEL,
   DEFAULT_GEMINI_EMBEDDING_MODEL,
 } from './src/config/models.js';
+export { ApprovalMode, APPROVAL_MODES } from './src/config/config.js';
 export { logIdeConnection } from './src/telemetry/loggers.js';
 export {
   IdeConnectionEvent,

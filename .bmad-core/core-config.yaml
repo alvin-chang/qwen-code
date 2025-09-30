@@ -1,0 +1,93 @@
+markdownExploder: true
+qa:
+  qaLocation: docs/qa
+prd:
+  prdFile: docs/prd.md
+  prdVersion: v4
+  prdSharded: true
+  prdShardedLocation: docs/prd
+  epicFilePattern: epic-{n}*.md
+architecture:
+  architectureFile: docs/architecture.md
+  architectureVersion: v4
+  architectureSharded: true
+  architectureShardedLocation: docs/architecture
+customTechnicalDocuments: null
+devLoadAlwaysFiles:
+  - docs/architecture/coding-standards.md
+  - docs/architecture/tech-stack.md
+  - docs/architecture/source-tree.md
+devDebugLog: .ai/debug-log.md
+devStoryLocation: docs/stories
+slashPrefix: BMad
+mathematicalFramework:
+  frameworkDocument: docs/bmad-mathematical-framework.md
+  implementationMapping: docs/bmad-framework-implementation-mapping.md
+  practicalExamples: docs/bmad-framework-practical-examples.md
+memory:
+  enabled: true
+  isolation:
+    project: true
+    agent: true
+  storage:
+    location: .ai/memory
+    format: json
+  prefixes:
+    analyst: ANALYSIS
+    architect: ARCH
+    bmad-master: BMAD
+    bmad-orchestrator: ORCHESTRATOR
+    dev: DEV
+    devops: DEVOPS
+    performance: PERFORMANCE
+    pm: PM
+    po: PO
+    qa: QA
+    security: SECURITY
+    sm: SM
+    technical-writer: DOC
+    ux-expert: UX
+  retention:
+    days: 30
+    maxEntries: 1000
+  compression:
+    enabled: true
+    threshold: 100
+orchestrator:
+  workflows:
+    tracking: true
+    visualization: true
+    max_active: 50
+    auto_archive: true
+    archive_after_days: 30
+  agents:
+    coordination: true
+    max_workload: 10
+    auto_balance: true
+    communication_timeout: 30000
+  monitoring:
+    health_check_interval: 60000
+    bottleneck_detection: true
+    delivery_prediction: true
+    analytics_collection: true
+  cross_agent:
+    sharing: true
+    sync_interval: 300000
+    message_retention_days: 7
+  enhanced:
+    visualization:
+      mermaid: true
+      realtime_updates: true
+    bottleneck:
+      detection: true
+      alerting: true
+    delivery:
+      prediction: true
+      confidence_threshold: 0.8
+    analytics:
+      performance: true
+      resource: true
+      agent: true
+  memory:
+    prefix: ORCHESTRATOR
+    cross_agent_sharing: true

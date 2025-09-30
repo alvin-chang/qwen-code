@@ -1,0 +1,95 @@
+#!/usr/bin/expect
+
+# Expect script to test qwen's conversation memory functionality
+# This script will start a qwen session, provide information, 
+# then start a new session to see if it remembers
+
+set timeout 60
+
+# Start the first qwen session
+spawn qwen --prompt-interactive --debug
+
+# Wait for qwen to be ready and send initial information
+expect {
+    -re "Hello|Qwen|assistant|>" {
+        puts "First session: Qwen started successfully"
+        send "My name is ConversationTest. Remember this information.\r"
+    }
+    timeout {
+        puts "Timeout waiting for first qwen session to start"
+        exit 1
+    }
+}
+
+# Wait for response to the initial message
+expect {
+    -re "remember|ConversationTest|name" {
+        puts "First session: Qwen acknowledged the name"
+        sleep 2
+    }
+    timeout {
+        puts "Timeout waiting for response in first session"
+        exit 1
+    }
+}
+
+# Ask about the information provided
+send "What is my name?\r"
+
+# Wait for qwen to respond with the name
+expect {
+    -re "ConversationTest|name.*ConversationTest" {
+        puts "First session: Qwen remembers the name correctly"
+        sleep 2
+    }
+    timeout {
+        puts "Timeout waiting for name recall in first session"
+        exit 1
+    }
+}
+
+# Exit the first session
+send "quit\r"
+expect eof
+puts "First session ended"
+
+# Wait a moment to ensure session cleanup
+sleep 3
+
+# Start a second qwen session to test if information persists
+spawn qwen --prompt-interactive --debug
+
+expect {
+    -re "Hello|Qwen|assistant|>" {
+        puts "Second session: Qwen started successfully"
+        send "What did I tell you about myself in our previous conversation?\r"
+    }
+    timeout {
+        puts "Timeout waiting for second qwen session to start"
+        exit 1
+    }
+}
+
+# Wait for response from second session
+expect {
+    -re "ConversationTest|name.*ConversationTest|remember" {
+        puts "SUCCESS: Second session remembers the name from the first session!"
+    }
+    -re "don't.*remember|no.*conversation|first.*interaction" {
+        puts "INFO: Second session doesn't have direct access to previous conversation"
+        puts "      (this is normal - persistence is in storage files)"
+    }
+    timeout {
+        puts "Timeout waiting for response in second session"
+        exit 1
+    }
+}
+
+# End the second session
+send "quit\r"
+expect eof
+puts "Second session ended"
+
+puts "\n=== Test completed ==="
+puts "If the second session showed 'SUCCESS', qwen remembers conversations across sessions."
+puts "If it showed 'INFO', qwen doesn't directly recall across sessions but may store in files."

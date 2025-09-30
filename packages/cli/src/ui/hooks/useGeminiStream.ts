@@ -145,15 +145,27 @@ export const useGeminiStream = (
     assistantResponse: string
   ) => {
     try {
-      // In the actual implementation, this would trigger the store_conversation_turn tool
-      // For now, we just log the conversation turn that would be stored
+      // Create MemoriExtension instance to access conversation manager
+      // This follows the same pattern as recallConversations in client.ts
+      const { MemoriExtension } = await import('@qwen-code/qwen-code-core/dist/src/extensions/memori/index.js');
+      const memoriExtension = new MemoriExtension('qwen-code', config.getProjectRoot?.() || process.cwd());
+      
+      // Store the conversation turn directly using the conversation manager
+      const success = await memoriExtension.storeConversationTurn(
+        userInput,
+        assistantResponse,
+        memoriExtension.getConversationId(), // Use conversation ID from memori extension
+        memoriExtension.getSessionId() // Use session ID from memori extension
+      );
+
       if (config.getDebugMode()) {
-        console.debug(`Would store conversation turn: User: "${userInput.substring(0, 30)}...", Assistant: "${assistantResponse.substring(0, 30)}..."`);
+        console.debug(`Stored conversation turn: User: "${userInput.substring(0, 30)}...", Assistant: "${assistantResponse.substring(0, 30)}..."`);
+        console.debug('Store success:', success);
       }
     } catch (error) {
-      console.error('Error preparing to store conversation turn:', error);
+      console.error('Error storing conversation turn:', error);
     }
-  }, [config]);
+  }, [config, geminiClient]);
 
   const pendingToolCallGroupDisplay = useMemo(
     () =>

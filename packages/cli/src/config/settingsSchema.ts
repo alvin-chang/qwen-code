@@ -912,6 +912,16 @@ export const SETTINGS_SCHEMA = {
       'Show welcome back dialog when returning to a project with conversation history.',
     showInDialog: true,
   },
+  enableAutoSessionContinuity: {
+    type: 'boolean',
+    label: 'Enable Automatic Session Continuity',
+    category: 'UI',
+    requiresRestart: false,
+    default: false, // Default to false to maintain existing behavior
+    description:
+      'Automatically load the most recent conversation when returning to a project with conversation history, without showing the welcome dialog.',
+    showInDialog: true,
+  },
 } as const;
 
 type InferSettings<T extends SettingsSchema> = {

@@ -79,6 +79,7 @@ import { DetailedMessagesDisplay } from './components/DetailedMessagesDisplay.js
 import { HistoryItemDisplay } from './components/HistoryItemDisplay.js';
 import { ContextSummaryDisplay } from './components/ContextSummaryDisplay.js';
 import { useHistory } from './hooks/useHistoryManager.js';
+import { useAutoSaveConversation } from './hooks/useAutoSaveConversation.js';
 import process from 'node:process';
 import type { EditorType, Config, IdeContext } from '@qwen-code/qwen-code-core';
 import {
@@ -176,9 +177,13 @@ const App = ({ config, settings, startupWarnings = [], version }: AppProps) => {
   const isFocused = useFocus();
   useBracketedPaste();
   const [updateInfo, setUpdateInfo] = useState<UpdateObject | null>(null);
+  const updateHandlerSetupRef = useRef(false);
   const { stdout } = useStdout();
   const nightly = version.includes('nightly');
   const { history, addItem, clearItems, loadHistory } = useHistory();
+  
+  // Auto-save conversations if the setting is enabled
+  useAutoSaveConversation(history, settings.merged.enableAutoSessionContinuity ?? false);
 
   const [idePromptAnswered, setIdePromptAnswered] = useState(false);
   const currentIDE = config.getIdeClient().getCurrentIde();
@@ -192,8 +197,20 @@ const App = ({ config, settings, startupWarnings = [], version }: AppProps) => {
     !idePromptAnswered;
 
   useEffect(() => {
+    // Only set up update handler once to prevent issues with React StrictMode
+    // which runs effects twice in development
+    if (updateHandlerSetupRef.current) {
+      return;
+    }
+    
+    updateHandlerSetupRef.current = true;
     const cleanup = setUpdateHandler(addItem, setUpdateInfo);
-    return cleanup;
+    
+    // Clean up the ref when component unmounts
+    return () => {
+      cleanup();
+      updateHandlerSetupRef.current = false;
+    };
   }, [addItem]);
 
   const {
@@ -794,7 +811,7 @@ const App = ({ config, settings, startupWarnings = [], version }: AppProps) => {
     welcomeBackChoice,
     handleWelcomeBackSelection,
     handleWelcomeBackClose,
-  } = useWelcomeBack(config, submitQuery, buffer, settings.merged);
+  } = useWelcomeBack(config, submitQuery, buffer, settings.merged, loadHistory, config.getGeminiClient());
 
   // Dialog close functionality
   const { closeAnyOpenDialog } = useDialogClose({
@@ -1133,12 +1150,80 @@ const App = ({ config, settings, startupWarnings = [], version }: AppProps) => {
     return getAllGeminiMdFilenames();
   }, [settings.merged.context?.fileName]);
 
+  // Function to automatically recall and load relevant conversations at startup
+  const autoRecallConversations = useCallback(async () => {
+    try {
+      // Check if auto session continuity is enabled
+      if (settings.merged.enableAutoSessionContinuity !== true) {
+        if (config.getDebugMode()) {
+          console.debug('Automatic session continuity is disabled');
+        }
+        return;
+      }
+      
+      // Try to get recent conversation history directly using the ConversationManager
+      const { getRecentConversationHistory, hasConversationHistory } = await import('@qwen-code/qwen-code-core');
+      
+      const hasConvHistory = await hasConversationHistory();
+      if (hasConvHistory) {
+        const conversationHistory = await getRecentConversationHistory();
+        
+        if (conversationHistory.length > 0) {
+          // Convert conversation turns to UI history format with IDs
+          let nextId = Date.now(); // Use timestamp as starting point for IDs
+          const uiHistory: HistoryItem[] = [];
+          for (const turn of conversationHistory) {
+            // Add user message with ID
+            uiHistory.push({
+              type: 'user',
+              text: turn.userInput,
+              id: nextId++,
+            });
+            // Add assistant response with ID  
+            uiHistory.push({
+              type: 'gemini',
+              text: turn.assistantResponse,
+              id: nextId++,
+            });
+          }
+          
+          if (uiHistory.length > 0) {
+            loadHistory(uiHistory);
+            
+            // Also add the history to the Gemini client so it has context for the conversation
+            const geminiClient = config.getGeminiClient();
+            if (geminiClient && typeof geminiClient.addHistory === 'function') {
+              for (const item of uiHistory) {
+                if (item.type === 'user') {
+                  geminiClient.addHistory({
+                    role: 'user',
+                    parts: [{ text: item.text }]
+                  });
+                } else if (item.type === 'gemini') {
+                  geminiClient.addHistory({
+                    role: 'model', 
+                    parts: [{ text: item.text }]
+                  });
+                }
+              }
+            }
+            
+            if (config.getDebugMode()) {
+              console.debug(`Loaded ${conversationHistory.length} conversation turns from history`);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Could not perform automatic conversation recall:', error);
+    }
+  }, [config, settings.merged.enableAutoSessionContinuity, loadHistory]);
+
   const initialPrompt = useMemo(() => config.getQuestion(), [config]);
   const geminiClient = config.getGeminiClient();
 
   useEffect(() => {
     if (
-      initialPrompt &&
       !initialPromptSubmitted.current &&
       !isAuthenticating &&
       !isAuthDialogOpen &&
@@ -1152,7 +1237,13 @@ const App = ({ config, settings, startupWarnings = [], version }: AppProps) => {
       welcomeBackChoice !== 'restart' &&
       geminiClient?.isInitialized?.()
     ) {
-      submitQuery(initialPrompt);
+      // Automatically recall conversations at startup
+      autoRecallConversations().catch(console.error);
+      
+      // Then submit the initial prompt if provided
+      if (initialPrompt) {
+        submitQuery(initialPrompt);
+      }
       initialPromptSubmitted.current = true;
     }
   }, [
@@ -1169,6 +1260,7 @@ const App = ({ config, settings, startupWarnings = [], version }: AppProps) => {
     geminiClient,
     isModelSelectionDialogOpen,
     isVisionSwitchDialogOpen,
+    autoRecallConversations,
   ]);
 
   if (quittingMessages) {

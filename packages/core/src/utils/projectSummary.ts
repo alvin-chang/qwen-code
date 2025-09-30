@@ -9,6 +9,7 @@ import * as path from 'path';
 
 export interface ProjectSummaryInfo {
   hasHistory: boolean;
+  hasConversationHistory: boolean;
   content?: string;
   timestamp?: string;
   timeAgo?: string;
@@ -32,6 +33,7 @@ export async function getProjectSummaryInfo(): Promise<ProjectSummaryInfo> {
   } catch {
     return {
       hasHistory: false,
+      hasConversationHistory: false,
     };
   }
 
@@ -100,6 +102,7 @@ export async function getProjectSummaryInfo(): Promise<ProjectSummaryInfo> {
 
     return {
       hasHistory: true,
+      hasConversationHistory: false, // Temporarily false since we're separating this functionality
       content,
       timestamp,
       timeAgo,
@@ -114,6 +117,29 @@ export async function getProjectSummaryInfo(): Promise<ProjectSummaryInfo> {
   } catch (_error) {
     return {
       hasHistory: false,
+      hasConversationHistory: false,
     };
   }
+}
+
+// Function to get recent conversation history
+export async function getRecentConversationHistory(limit: number = 50): Promise<ConversationTurn[]> {
+  const { ConversationManager } = await import('../conversation/conversation-manager.js');
+  const conversationManager = new ConversationManager();
+  return await conversationManager.getRecentConversation(undefined, undefined, limit); // Don't filter by session
+}
+
+// Separate function for checking conversation history
+export async function hasConversationHistory(): Promise<boolean> {
+  const { ConversationManager } = await import('../conversation/conversation-manager.js');
+  const conversationManager = new ConversationManager();
+  return conversationManager.hasConversationHistory();
+}
+
+export interface ConversationTurn {
+  userInput: string;
+  assistantResponse: string;
+  conversationId: string;
+  sessionId: string;
+  timestamp: number;
 }

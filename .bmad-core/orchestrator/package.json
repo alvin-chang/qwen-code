@@ -1,0 +1,27 @@
+{
+  "name": "bmad-orchestrator",
+  "version": "4.43.0",
+  "description": "Enhanced BMAD™ Orchestrator - Multi-Agent System Coordinator & Workflow Manager with Advanced Visualization, Performance Analytics, and Delivery Prediction",
+  "main": "index.js",
+  "bin": {
+    "bmad-orchestrator": "./cli.js"
+  },
+  "scripts": {
+    "test": "jest",
+    "start": "node cli.js",
+    "orchestrator:demo": "node examples/working-orchestrator-demo.js",
+    "orchestrator:demo:comprehensive": "node examples/comprehensive-orchestrator-demo.js",
+    "orchestrator:cli:test": "node examples/test-orchestrator-cli.js"
+  },
+  "keywords": ["bmad", "orchestrator", "multi-agent", "workflow", "visualization", "analytics", "prediction"],
+  "author": "BMAD™",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.0",
+    "fs-extra": "^11.3.1",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "jest": "^30.0.5"
+  }
+}

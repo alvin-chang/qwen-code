@@ -4,8 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { ToolRegistry } from '../../tools/tool-registry.js';
+import type { ToolRegistry } from '../../tools/tool-registry.js';
 import { MemoriExtension } from './index.js';
 import { ConversationMemoryTool, SearchConversationTool } from './tools.js';
 
@@ -16,18 +15,16 @@ export class MemoriToolManager {
   private memoriExtension: MemoriExtension;
   private toolRegistry: ToolRegistry;
 
-  constructor(toolRegistry: ToolRegistry, projectId: string = 'qwen-code') {
+  constructor(toolRegistry: ToolRegistry, projectId: string = 'qwen-code', workspacePath: string = process.cwd()) {
     this.toolRegistry = toolRegistry;
-    this.memoriExtension = new MemoriExtension(projectId);
+    // Create MemoriExtension with the same project ID and workspace path to ensure
+    // it uses the same conversation context as the main client
+    this.memoriExtension = new MemoriExtension(projectId, workspacePath);
   }
 
   /**
-   * Initialize the memori extension with an MCP client
-   * @param client The MCP client to use for communication
+   * No initialization needed as the memori extension now uses local storage
    */
-  initialize(client: Client): void {
-    this.memoriExtension.initialize(client);
-  }
 
   /**
    * Register the memori tools with the tool registry

@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemoriToolManager } from './memori-tool-manager.js';
-import { ToolRegistry } from '../../tools/tool-registry.js';
+import type { ToolRegistry } from '../../tools/tool-registry.js';
 
 // Mock classes
 const mockToolRegistry = {
@@ -21,18 +21,12 @@ describe('MemoriToolManager', () => {
   let memoriToolManager: MemoriToolManager;
 
   beforeEach(() => {
-    memoriToolManager = new MemoriToolManager(mockToolRegistry as unknown as ToolRegistry);
+    memoriToolManager = new MemoriToolManager(mockToolRegistry as unknown as ToolRegistry, 'test-project', '/tmp/test-workspace');
     mockToolRegistry.registerTool.mockClear();
     mockClient.callTool.mockClear();
   });
 
-  describe('initialize', () => {
-    it('should initialize the memori extension with a client', () => {
-      memoriToolManager.initialize(mockClient as any);
-      // Should not throw an error
-      expect(true).toBe(true);
-    });
-  });
+  
 
   describe('registerTools', () => {
     it('should register the memori tools with the tool registry', () => {
@@ -48,6 +42,7 @@ describe('MemoriToolManager', () => {
       const extension = memoriToolManager.getMemoriExtension();
       expect(extension).toBeDefined();
       expect(typeof extension.getSessionId).toBe('function');
+      expect(typeof extension.getConversationId).toBe('function');
     });
   });
 });

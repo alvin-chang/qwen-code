@@ -189,10 +189,18 @@ export class ToolRegistry {
    */
   registerTool(tool: AnyDeclarativeTool): void {
     if (this.tools.has(tool.name)) {
+      // Special handling for conversation memory tools to prevent duplicate registration
+      // which can cause hanging at startup
+      if (tool.name === 'store_conversation_turn' || tool.name === 'search_conversation_history') {
+        // For conversation memory tools, silently ignore duplicates to prevent hanging
+        // This commonly happens when both local and MCP server implementations exist
+        return;
+      }
+      
       if (tool instanceof DiscoveredMCPTool) {
         tool = tool.asFullyQualifiedTool();
       } else {
-        // Decide on behavior: throw error, log warning, or allow overwrite
+        // For other tools, keep the original behavior
         console.warn(
           `Tool with name "${tool.name}" is already registered. Overwriting.`,
         );

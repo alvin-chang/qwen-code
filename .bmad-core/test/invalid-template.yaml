@@ -1,0 +1,18 @@
+template:
+  id: invalid-template
+  name: Invalid Template
+  # Missing version field
+  output:
+    format: markdown
+    filename: test.md
+    title: "Test Document"
+
+workflow:
+  mode: interactive
+  elicitation: advanced-elicitation
+
+sections:
+  - id: introduction
+    title: Introduction
+    instruction: Write an introduction to the document
+    elicit: true

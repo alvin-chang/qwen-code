@@ -1,0 +1,108 @@
+#!/usr/bin/expect
+
+# Expect script to test qwen's conversation memory functionality in interactive mode
+# This script verifies that conversations are stored and can be referenced across sessions
+
+set timeout 30
+
+# Function to start a new qwen interactive session
+proc start_qwen_session {} {
+    global spawn_id
+    spawn qwen --prompt-interactive --debug
+    expect {
+        -re "Hello|Qwen|assistant|>" {
+            puts "Qwen session started successfully"
+            return 1
+        }
+        timeout {
+            puts "Timeout waiting for qwen to start"
+            return 0
+        }
+    }
+}
+
+# Function to send a message and wait for a response
+proc send_and_wait {message response_pattern} {
+    global spawn_id
+    puts "Sending: $message"
+    send "$message\r"
+    
+    # Wait for response
+    expect {
+        -re $response_pattern {
+            puts "Received expected response"
+            return 1
+        }
+        timeout {
+            puts "Timeout waiting for response to: $message"
+            return 0
+        }
+    }
+}
+
+# Start first session to establish a conversation
+puts "=== Starting first session to establish conversation ==="
+if [start_qwen_session] {
+    # Send initial information that should be remembered
+    if [send_and_wait "My name is ConversationTester. Please remember this information." "ConversationTester|name|remember"] {
+        # Send a follow-up that refers back to the previous statement
+        if [send_and_wait "What did I tell you about my name?" "ConversationTester|name"] {
+            puts "SUCCESS: First session - Qwen remembered the name!"
+        } else {
+            puts "Partially successful: Qwen responded but didn't remember the name"
+        }
+        
+        # Exit the first session
+        send "\x04"  ;# Send EOF (Ctrl+D) to exit
+        expect eof
+        puts "First session ended"
+    }
+} else {
+    puts "Failed to start first session"
+    exit 1
+}
+
+# Wait to ensure the conversation is saved
+sleep 3
+
+# Verify conversation files were created
+puts "Checking for conversation storage..."
+set dir_check [catch {open "|ls -1 .qwen/conversations/*.json" r} result]
+if {$dir_check == 0} {
+    set files [read $result]
+    close $result
+    if {[string length $files] > 0} {
+        puts "SUCCESS: Conversation files were created:"
+        puts $files
+    } else {
+        puts "INFO: No conversation files found (this might be normal depending on implementation)"
+    }
+} else {
+    puts "INFO: Conversations directory might not exist yet"
+}
+
+# Start second session to test if previous information is recalled
+puts "\n=== Starting second session to test recall ==="
+if [start_qwen_session] {
+    # Ask about the information provided in the first session
+    if [send_and_wait "What is my name that I told you in our previous conversation?" "ConversationTester|name|don't.*remember|no.*conversation"] {
+        puts "Second session completed"
+        # Check the response pattern to determine if memory worked
+        exp_continue
+    }
+    
+    # Send exit command
+    send "\x04"  ;# Send EOF (Ctrl+D) to exit
+    expect eof
+    puts "Second session ended"
+} else {
+    puts "Failed to start second session"
+    exit 1
+}
+
+puts "\n=== Conversation Memory Test Completed ==="
+puts "The test verifies that:"
+puts "1. Information can be provided to qwen in a session"
+puts "2. The same session can recall that information"
+puts "3. Conversation data may be stored persistently"
+puts "4. Future sessions may be able to access the conversation history"

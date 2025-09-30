@@ -1,0 +1,241 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "BMAD Template Schema",
+  "description": "Schema for validating BMAD YAML templates",
+  "required": [
+    "template",
+    "workflow",
+    "sections"
+  ],
+  "properties": {
+    "template": {
+      "type": "object",
+      "title": "Template Metadata",
+      "description": "Metadata about the template",
+      "required": [
+        "id",
+        "name",
+        "version",
+        "output"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$",
+          "description": "Unique identifier for the template"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable name for the template"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Template version number"
+        },
+        "output": {
+          "type": "object",
+          "required": [
+            "format",
+            "filename",
+            "title"
+          ],
+          "properties": {
+            "format": {
+              "type": "string",
+              "enum": [
+                "markdown"
+              ],
+              "description": "Output format of the generated document"
+            },
+            "filename": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Default output filename"
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Document title"
+            }
+          }
+        }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "title": "Workflow Configuration",
+      "description": "Workflow processing configuration",
+      "required": [
+        "mode",
+        "elicitation"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "interactive",
+            "yolo"
+          ],
+          "description": "Default interaction mode"
+        },
+        "elicitation": {
+          "type": "string",
+          "enum": [
+            "advanced-elicitation"
+          ],
+          "description": "Elicitation task to use"
+        }
+      }
+    },
+    "sections": {
+      "type": "array",
+      "title": "Template Sections",
+      "description": "Array of template sections",
+      "items": {
+        "$ref": "#/definitions/section"
+      }
+    }
+  },
+  "definitions": {
+    "section": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "instruction"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$",
+          "description": "Unique identifier for the section"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Section title"
+        },
+        "instruction": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Detailed instructions for LLM on handling this section"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "bullet-list",
+            "numbered-list",
+            "paragraphs",
+            "table",
+            "code-block",
+            "template-text",
+            "mermaid",
+            "repeatable-container",
+            "conditional-block",
+            "choice-selector"
+          ],
+          "description": "Content type hint for structured sections"
+        },
+        "template": {
+          "type": "string",
+          "description": "Fixed template text for section content"
+        },
+        "item_template": {
+          "type": "string",
+          "description": "Template for repeatable items within section"
+        },
+        "prefix": {
+          "type": "string",
+          "description": "Prefix for numbered items"
+        },
+        "elicit": {
+          "type": "boolean",
+          "description": "Apply elicitation after section rendered"
+        },
+        "repeatable": {
+          "type": "boolean",
+          "description": "Section can be repeated multiple times"
+        },
+        "condition": {
+          "type": "string",
+          "description": "Condition for including section"
+        },
+        "owner": {
+          "type": "string",
+          "description": "Agent role that initially creates/populates this section"
+        },
+        "editors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of agent roles allowed to modify this section"
+        },
+        "readonly": {
+          "type": "boolean",
+          "description": "Section cannot be modified after initial creation"
+        },
+        "placeholder": {
+          "type": "string",
+          "description": "Default placeholder text"
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/section"
+          },
+          "description": "Nested child sections"
+        },
+        "examples": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Example content (not included in output)"
+        },
+        "choices": {
+          "type": "object",
+          "description": "Choice options for common decisions"
+        },
+        "mermaid_type": {
+          "type": "string",
+          "enum": [
+            "flowchart",
+            "sequenceDiagram",
+            "classDiagram",
+            "stateDiagram",
+            "erDiagram",
+            "gantt",
+            "pie",
+            "journey",
+            "mindmap",
+            "timeline",
+            "quadrantChart",
+            "xyChart",
+            "sankey",
+            "c4Context",
+            "requirement",
+            "packet",
+            "block",
+            "kanban"
+          ],
+          "description": "Type of Mermaid diagram"
+        },
+        "details": {
+          "type": "string",
+          "description": "Details for Mermaid diagrams"
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Column headers for table sections"
+        }
+      }
+    }
+  }
+}

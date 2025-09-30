@@ -1,0 +1,31 @@
+template:
+  id: test-template
+  name: Test Template
+  version: "1.0"
+  output:
+    format: markdown
+    filename: test.md
+    title: "Test Document"
+
+workflow:
+  mode: interactive
+  elicitation: advanced-elicitation
+
+sections:
+  - id: introduction
+    title: Introduction
+    instruction: Write an introduction to the document
+    elicit: true
+    
+  - id: main-content
+    title: Main Content
+    instruction: Write the main content of the document
+    sections:
+      - id: subsection-1
+        title: Subsection 1
+        instruction: Write content for subsection 1
+        
+      - id: subsection-2
+        title: Subsection 2
+        instruction: Write content for subsection 2
+        elicit: true
