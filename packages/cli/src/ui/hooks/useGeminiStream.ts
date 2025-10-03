@@ -836,11 +836,6 @@ export const useGeminiStream = (
         if (config.getCheckpointingEnabled()) {
           try {
             if (gitService) {
-              const timestamp = new Date()
-                .toISOString()
-                .replace(/[:.]/g, '-')
-                .replace('T', '_')
-                .replace('Z', '');
               const checkpointMessage = `Checkpoint after conversation turn ${getPromptCount()}`;
               gitService.createFileSnapshot(checkpointMessage).catch((error) => {
                 console.error('Failed to create conversation turn checkpoint:', error);
@@ -991,11 +986,6 @@ export const useGeminiStream = (
       if (config.getCheckpointingEnabled()) {
         try {
           if (gitService) {
-            const timestamp = new Date()
-              .toISOString()
-              .replace(/[:.]/g, '-')
-              .replace('T', '_')
-              .replace('Z', '');
             const checkpointMessage = `Checkpoint after tool call ${getPromptCount()}`;
             gitService.createFileSnapshot(checkpointMessage).catch((error) => {
               console.error('Failed to create tool call checkpoint:', error);
