@@ -15,6 +15,7 @@ import { ConversationMemoryTool, SearchConversationTool } from './tools.js';
 export class MemoriToolManager {
   private memoriExtension: MemoriExtension;
   private toolRegistry: ToolRegistry;
+  private toolsRegistered: boolean = false;
 
   constructor(toolRegistry: ToolRegistry, projectId: string = 'qwen-code') {
     this.toolRegistry = toolRegistry;
@@ -33,6 +34,11 @@ export class MemoriToolManager {
    * Register the memori tools with the tool registry
    */
   registerTools(): void {
+    // Prevent duplicate registrations
+    if (this.toolsRegistered) {
+      return;
+    }
+    
     // Register the conversation memory tool
     const conversationMemoryTool = new ConversationMemoryTool(this.memoriExtension);
     this.toolRegistry.registerTool(conversationMemoryTool);
@@ -40,6 +46,17 @@ export class MemoriToolManager {
     // Register the search conversation tool
     const searchConversationTool = new SearchConversationTool(this.memoriExtension);
     this.toolRegistry.registerTool(searchConversationTool);
+    
+    // Mark tools as registered
+    this.toolsRegistered = true;
+  }
+
+  /**
+   * Unregister the memori tools from the tool registry
+   */
+  unregisterTools(): void {
+    // Reset the registration flag to allow re-registration
+    this.toolsRegistered = false;
   }
 
   /**
